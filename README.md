@@ -51,7 +51,7 @@ python3 -m pip install -r requirements.txt
 
 1. **Create an application** → **Bot** → reset/copy **token** → paste into `General.TOKEN` in `config.yml`.
 2. Under **Privileged Gateway Intents**, enable:
-   - **Presence Intent** (if you care about presence; intents are all enabled in code),
+   - **Presence Intent**,
    - **Server Members Intent**,
    - **Message Content Intent**.
 3. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`. Suggested bot permissions:
