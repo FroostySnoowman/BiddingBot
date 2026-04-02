@@ -268,4 +268,4 @@ Keep the process online (systemd, pm2, Docker, a VPS screen/tmux session, etc.) 
 
 ## License
 
-Add your preferred license if you distribute this project.
+This project is licensed under the [MIT License](LICENSE).
