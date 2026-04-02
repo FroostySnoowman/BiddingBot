@@ -3,6 +3,7 @@ import yaml
 import sys
 from discord.ext.commands import CommandNotFound
 from discord.ext import commands
+from cogs.functions.sqlite import check_tables
 
 with open('config.yml', 'r') as file:
     data = yaml.safe_load(file)
@@ -95,7 +96,7 @@ else:
 intents = discord.Intents.all()
 
 initial_extensions = [
-                      'cogs.commands.helpers',
+                      'cogs.commands.test',
                       ]
 
 class BiddingBot(commands.Bot):
@@ -113,6 +114,10 @@ class BiddingBot(commands.Bot):
         print('Succesfully synced slash commands!')
 
     async def setup_hook(self):
+        print('Checking local databases...')
+        await check_tables()
+        print('Check successful!')
+
         for extension in initial_extensions:
             await self.load_extension(extension)
 
