@@ -1,0 +1,103 @@
+# =============================================================================
+# Bidding Bot — example configuration
+# Copy this file to config.yml and fill in real values. Do not commit secrets.
+# =============================================================================
+
+General:
+    # Bot token from Discord Developer Portal → Your App → Bot → Reset Token / Copy
+    TOKEN: ""
+
+    # Bot presence type: playing | watching | listening | streaming
+    ACTIVITY: "watching"
+
+    # Text shown in the activity (required for playing/watching/listening)
+    DOING_ACTIVITY: "Bids"
+
+    # Only used when ACTIVITY is "streaming"; must be a twitch.tv URL
+    STREAMING_ACTIVITY_TWITCH_URL: ""
+
+    # Bot online state: online | idle | dnd | invisible
+    STATUS: "online"
+
+    # Hex color for embed accents, e.g. #RRGGBB
+    EMBED_COLOR: "#9C27B0"
+
+    # Your Discord server ID (Developer Mode on → right-click server → Copy Server ID)
+    GUILD_ID: 0
+
+Bidding:
+    # Text channel where the live bidding embed and winners message are posted.
+    # Use 0 to disable auto-posting new cycles (scheduler will not open a channel post).
+    CHANNEL_ID: 0
+
+    # Role required to place bids. Users without this role are rejected.
+    # Use 0 to disable the check (not recommended).
+    BIDDER_ROLE_ID: 0
+
+    # Minimum bid in cents (100 = $1.00)
+    MIN_BID_CENTS: 100
+
+    # Hour (0–23) in America/Chicago on the day the auction OPENS
+    # (opening day = 14 days before the first day of the target slot month)
+    OPENS_HOUR_CHICAGO: 0
+
+    # Channel for Stripe/DM failures and notices. Use 0 to skip.
+    STAFF_FALLBACK_CHANNEL_ID: 0
+
+Stripe:
+    # Stripe secret key (sk_live_... or sk_test_...).
+    # You can use STRIPE_API_KEY instead of SECRET_KEY — the bot accepts either name.
+    SECRET_KEY: ""
+
+    # Days until due on hosted invoices (collection_method send_invoice)
+    INVOICE_DAYS_UNTIL_DUE: 7
+
+Channels:
+    # Text channel where "invoice paid" embeds are posted after polling Stripe.
+    # Use 0 to disable posting (DB still updates).
+    INVOICE_LOG_CHANNEL_ID: 0
+
+Tickets:
+    # Optional: note for yourself — where you run /ticketpanel (not read by the bot)
+    PANEL_CHANNEL_ID: 0
+
+    # Category under which new ticket text channels are created (copy category ID)
+    TICKET_CATEGORY_ID: 0
+
+    # Roles that can see tickets, get pinged on open, and use the Close button
+    STAFF_ROLE_IDS: []
+    # Example: [123456789012345678, 987654321098765432]
+
+    # Labels for the four ticket buttons (keys must stay apply/support/bugs/general)
+    CATEGORIES:
+        apply: "Apply"
+        support: "Support"
+        bugs: "Bugs"
+        general: "General"
+
+AutoMod:
+    # Master switch for the on_message AutoMod listener
+    ENABLED: true
+
+    # Text channel for violation logs; 0 = no logging
+    LOG_CHANNEL_ID: 0
+
+    # Role IDs that skip AutoMod (Manage Messages / Admin always skip)
+    BYPASS_ROLE_IDS: []
+
+    # Delete messages that look like Discord invite links
+    BLOCK_INVITES: true
+
+    # Lowercase substring list; any match triggers deletion
+    BLOCKED_WORDS: []
+    # Example: ["badword", "spamphrase"]
+
+    # Max combined user + role mentions per message
+    MAX_MENTIONS: 8
+
+    # Flood: max messages per user per channel in this many seconds
+    FLOOD_MESSAGES: 5
+    FLOOD_SECONDS: 7
+
+    # If this fraction of letters are caps (and message has enough letters), delete
+    MAX_CAPS_RATIO: 0.7
