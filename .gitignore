@@ -105,3 +105,6 @@ dmypy.json
 
 # Config
 config.yml
+
+# Database
+database.db

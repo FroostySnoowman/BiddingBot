@@ -96,8 +96,13 @@ else:
 intents = discord.Intents.all()
 
 initial_extensions = [
-                      'cogs.commands.test',
-                      ]
+    'cogs.events.bidding_scheduler',
+    'cogs.buttons.bidding.bid_view',
+    'cogs.commands.bidding.admin',
+    'cogs.events.stripe_poll',
+    'cogs.commands.tickets.tickets',
+    'cogs.events.automod',
+]
 
 class BiddingBot(commands.Bot):
     def __init__(self):
