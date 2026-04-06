@@ -88,22 +88,28 @@ class BiddingSchedulerCog(commands.Cog):
         if not (opens_chi <= now_chi < closes_chi):
             return
 
+        await self.start_open_cycle(ty, tm, opens_chi, closes_chi)
+
+    async def start_open_cycle(self, target_year: int, target_month: int, opens_chi: datetime, closes_chi: datetime) -> tuple[int | None, str]:
+        if bidding_channel_id == 0:
+            return None, 'Bidding channel is not configured (`Bidding.CHANNEL_ID` is 0).'
         ch = self.bot.get_channel(bidding_channel_id)
         if not ch or not isinstance(ch, discord.TextChannel):
-            return
+            return None, 'Bidding channel not found or is not a text channel.'
 
         opens_iso = chicago_to_utc_iso(opens_chi)
         closes_iso = chicago_to_utc_iso(closes_chi)
-        em = build_live_embed(ty, tm, {}, closes_iso)
+        em = build_live_embed(target_year, target_month, {}, closes_iso)
         msg = await ch.send(embed=em, view=BidPanelView())
-        cid = await bidding_db.insert_cycle(guild_id, ty, tm, 'open', opens_iso, closes_iso, ch.id, msg.id)
+        cid = await bidding_db.insert_cycle(guild_id, target_year, target_month, 'open', opens_iso, closes_iso, ch.id, msg.id)
         if cid is None:
             try:
                 await msg.delete()
             except discord.HTTPException:
                 pass
-            return
+            return None, 'A bidding cycle for that target month already exists.'
         await bidding_db.update_cycle_live_message(cid, ch.id, msg.id)
+        return cid, ''
 
     async def _close_cycle(self, cycle: dict):
         cid = cycle['id']

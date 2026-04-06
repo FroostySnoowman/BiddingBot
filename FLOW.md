@@ -1,6 +1,6 @@
 # How bidding works
 
-This bot runs **monthly slot auctions** (10 slots) in Discord. You do **not** start bidding with a command—the bot opens a window on a schedule and posts a message users interact with.
+This bot runs **monthly slot auctions** (10 slots) in Discord. Normally the bot **opens a window on a schedule** and posts a message users interact with. Staff can also run **`/force_start_bidding`** to post that message **immediately** (see below).
 
 ---
 
@@ -25,6 +25,16 @@ Example: for **April** slots, bidding opens on **March 18** at your configured h
 The bot checks this schedule about **every 2 minutes**. If the current time falls inside the open window and there is **no cycle yet** for that target month in the database, it **creates one**: it sends the live embed and saves the cycle.
 
 **Important:** If `Bidding.CHANNEL_ID` is `0` in config, the bot **will not** start new cycles (it only manages cycles that already exist).
+
+### Force start (staff)
+
+**`/force_start_bidding`** creates the **same** live bidding post the scheduler would create, but **right away**:
+
+- Leave **year** and **month** empty → target month is the **next calendar month** (Chicago).
+- Or set **both** `year` and `month` (1–12) to pick the target month explicitly.
+- Bidding **still ends** at the normal time (24 hours before that target month starts, Chicago). If that moment is already in the past, the command refuses.
+- You cannot start if there is already an **open** cycle—close it with **`/force_close_bidding`** first.
+- You cannot start if a cycle for that target month **already exists** in the database (any phase).
 
 ---
 
@@ -78,6 +88,7 @@ Another task polls Stripe about every **2 minutes** and marks invoices **paid** 
 
 ## Staff commands (optional)
 
+- **`/force_start_bidding`** — Opens bidding immediately for a target month (optional year + month, or defaults to next calendar month, Chicago).
 - **`/refresh_bidding_embed`** — Refreshes the live embed for the current open cycle.
 - **`/sync_bidding_views`** — Re-registers the dropdown UI (useful after restarts if interactions break).
 - **`/force_close_bidding`** — Closes bidding now and posts winners.
@@ -107,6 +118,7 @@ flowchart LR
     B -->|no| D[Refresh live embed]
     E[Check closed cycles] --> F[Create Stripe invoices / DMs]
     G{In bidding window and no DB row?} --> H[Post live message + save cycle]
+    G2[Staff /force_start_bidding] --> H
   end
   subgraph user [User]
     I[Pick slot] --> J[Enter $] --> K[Saved if valid]

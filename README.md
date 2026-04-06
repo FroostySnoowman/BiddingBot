@@ -165,6 +165,13 @@ Example: for **April** slots, bidding opens on **March 18** at the configured ho
 - `cogs/events/bidding_scheduler.py` runs a loop about every **2 minutes**: refreshes open embeds, closes cycles when past `closes_at_utc`, creates **Stripe invoices** and DMs winners, and advances cycle phase when invoicing is complete.
 - If **`Stripe.SECRET_KEY`** is empty, winners are still posted; the cycle is marked **invoiced** without payment links, and a notice may go to `STAFF_FALLBACK_CHANNEL_ID`.
 
+### Force start (staff)
+
+- **`/force_start_bidding`** posts the **live bidding message immediately** for a chosen **target month** (the month the slots are for), without waiting for the normal “14 days before” open time.
+- Leave **year** and **month** empty to use the **next calendar month** (Chicago). Or set **both** (e.g. year `2026`, month `5` for May).
+- **Close time** is still the normal rule: 24 hours before that target month starts in Chicago. The command is rejected if that time has already passed, or if a cycle for that month already exists, or if another cycle is still **open** (close it with `/force_close_bidding` first).
+- Requires **`Bidding.CHANNEL_ID`** to be set and valid, same as automatic starts.
+
 ### Phases (database)
 
 - **`open`:** accepting bids; live message exists.
@@ -203,6 +210,7 @@ Runs on **normal messages** in **`GUILD_ID`** only. Deletes the message on viola
 | Command | Who | Description |
 |--------|-----|-------------|
 | `/ticketpanel` | Manage Server | Posts the ticket panel embed + buttons. |
+| `/force_start_bidding` | Manage Server | Starts bidding **now** for a target month: optional `year` + `month` (1–12), or omit both to use the **next calendar month** (Chicago). Fails if that month’s window already ended, a cycle already exists, or another cycle is still open. |
 | `/force_close_bidding` | Manage Server | Closes the **current open** bidding cycle immediately (posts winners, then invoicing follows as usual). |
 | `/refresh_bidding_embed` | Manage Server | Rebuilds the **live** bidding embed from the database. |
 | `/sync_bidding_views` | Administrator | Re-registers the **persistent** bid dropdown view (use after restarts/deploys if interactions break). |
