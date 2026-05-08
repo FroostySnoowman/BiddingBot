@@ -16,7 +16,7 @@ echo "Starting app at $(date)" >> "$LOG_FILE"
 
 source /bots/biddingbot/venv/bin/activate || echo "Failed to activate venv" >> "$LOG_FILE"
 
-/bots/biddingbot/venv/bin/python /bots/biddingbot/main.py >> "$LOG_FILE" 2>&1 &
+cd /bots/biddingbot && /bots/biddingbot/venv/bin/python /bots/biddingbot/main.py >> "$LOG_FILE" 2>&1 &
 main_pid=$!
 
 wait "$main_pid"

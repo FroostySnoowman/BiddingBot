@@ -22,8 +22,9 @@ def compute_opens_at(target_year: int, target_month: int, opens_hour_chicago: in
     return first_m - timedelta(days=14)
 
 def compute_closes_at(target_year: int, target_month: int) -> datetime:
-    first_m = datetime(target_year, target_month, 1, 0, 0, 0, tzinfo=CHICAGO)
-    return first_m - timedelta(hours=24)
+    next_year, next_month = add_months(target_year, target_month, 1)
+    last_day = datetime(next_year, next_month, 1, 0, 0, 0, tzinfo=CHICAGO) - timedelta(days=1)
+    return last_day - timedelta(days=2)
 
 def find_target_month_in_open_window(now_chi: datetime, opens_hour: int) -> tuple[int, int] | None:
     ty, tm = add_months(now_chi.year, now_chi.month, 1)

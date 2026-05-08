@@ -102,6 +102,7 @@ initial_extensions = [
     'cogs.events.stripe_poll',
     'cogs.commands.tickets.tickets',
     'cogs.events.automod',
+    'cogs.events.welcome',
 ]
 
 class BiddingBot(commands.Bot):

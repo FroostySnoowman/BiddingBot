@@ -12,6 +12,7 @@ guild_id = _cfg['General']['GUILD_ID']
 embed_color = _cfg['General']['EMBED_COLOR']
 bidder_role_id = _cfg.get('Bidding', {}).get('BIDDER_ROLE_ID', 0)
 min_bid_cents = _cfg.get('Bidding', {}).get('MIN_BID_CENTS', 100)
+_bid_log_channel_id = int(_cfg.get('Bidding', {}).get('BID_LOG_CHANNEL_ID', 0) or 0)
 
 class BidAmountModal(discord.ui.Modal, title='Place bid'):
     amount = discord.ui.TextInput(
@@ -54,6 +55,15 @@ class BidAmountModal(discord.ui.Modal, title='Place bid'):
             return
 
         await bidding_db.insert_bid(cycle['id'], self.slot, interaction.user.id, amount_cents)
+
+        if _bid_log_channel_id and interaction.guild:
+            log_ch = interaction.guild.get_channel(_bid_log_channel_id)
+            if isinstance(log_ch, discord.TextChannel):
+                month_str = f"{cycle['target_year']}-{cycle['target_month']:02d}"
+                prev_str = f' (prev high: ${prev / 100:.2f})' if prev is not None else ''
+                await log_ch.send(
+                    f'**Slot {self.slot}** — {interaction.user.mention} bid **${amount_cents / 100:.2f}**{prev_str} | {month_str}'
+                )
 
         closes_utc = parse_utc_iso(cycle['closes_at_utc'])
         ty, tm = cycle['target_year'], cycle['target_month']

@@ -8,11 +8,7 @@ DB_PATH = 'database.db'
 async def get_cycle_by_month(guild_id: int, target_year: int, target_month: int) -> dict | None:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            """SELECT * FROM bidding_cycles
-               WHERE guild_id = ? AND target_year = ? AND target_month = ?""",
-            (guild_id, target_year, target_month),
-        )
+        cur = await db.execute("SELECT * FROM bidding_cycles WHERE guild_id = ? AND target_year = ? AND target_month = ?", (guild_id, target_year, target_month))
         row = await cur.fetchone()
         return dict(row) if row else None
 
@@ -138,6 +134,7 @@ async def invoice_exists_for_slot(cycle_id: int, slot: int) -> bool:
 
 async def next_ticket_number() -> int:
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("INSERT OR IGNORE INTO ticket_counter (id, next_num) VALUES (1, 0)")
         cur = await db.execute("SELECT next_num FROM ticket_counter WHERE id = 1")
         row = await cur.fetchone()
         n = int(row[0]) + 1

@@ -21,10 +21,7 @@ _flood_n = int(_am.get('FLOOD_MESSAGES', 5))
 _flood_sec = float(_am.get('FLOOD_SECONDS', 7))
 _caps_ratio = float(_am.get('MAX_CAPS_RATIO', 0.7))
 
-_invite_re = re.compile(
-    r'(discord\.gg/[\w-]+|discord(?:app)?\.com/invite/[\w-]+)',
-    re.IGNORECASE,
-)
+_invite_re = re.compile(r'(discord\.gg/[\w-]+|discord(?:app)?\.com/invite/[\w-]+)', re.IGNORECASE)
 
 class AutoModCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -97,11 +94,7 @@ class AutoModCog(commands.Cog):
         if _log_id:
             log_ch = self.bot.get_channel(_log_id)
             if log_ch and isinstance(log_ch, discord.TextChannel):
-                em = discord.Embed(
-                    title='AutoMod',
-                    description=f'**{reason}** — deleted message from {message.author.mention} in {message.channel.mention}',
-                    color=discord.Color.from_str(embed_color),
-                )
+                em = discord.Embed(title='AutoMod', description=f'**{reason}** — deleted message from {message.author.mention} in {message.channel.mention}', color=discord.Color.from_str(embed_color))
                 if len(content) <= 1000:
                     em.add_field(name='Content', value=content or '*(empty)*', inline=False)
                 try:

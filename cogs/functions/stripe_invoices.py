@@ -11,13 +11,7 @@ _invoice_days = int(_stripe_section.get('INVOICE_DAYS_UNTIL_DUE', 7))
 
 def _create_invoice_sync(user_id: int, amount_cents: int, cycle_id: int, slot: int, guild_id: int) -> tuple[str, str]:
     stripe.api_key = _stripe_key
-    customer = stripe.Customer.create(metadata={'discord_user_id': str(user_id), 'guild_id': str(guild_id)})
-    stripe.InvoiceItem.create(
-        customer=customer.id,
-        amount=amount_cents,
-        currency='usd',
-        description=f'Monthly slot {slot} winning bid (cycle #{cycle_id})',
-    )
+    customer = stripe.Customer.create(email=f"{user_id}@noreply.invalid", metadata={'discord_user_id': str(user_id), 'guild_id': str(guild_id)})
     inv = stripe.Invoice.create(
         customer=customer.id,
         collection_method='send_invoice',
@@ -30,6 +24,7 @@ def _create_invoice_sync(user_id: int, amount_cents: int, cycle_id: int, slot: i
         },
         auto_advance=False,
     )
+    stripe.InvoiceItem.create(customer=customer.id, invoice=inv.id, amount=amount_cents, currency='usd', description=f'Monthly slot {slot} winning bid (cycle #{cycle_id})')
     inv = stripe.Invoice.finalize_invoice(inv.id)
     url = inv.hosted_invoice_url or ''
     return inv.id, url
