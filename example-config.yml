@@ -44,6 +44,9 @@ Bidding:
     # Channel for Stripe/DM failures and notices. Use 0 to skip.
     STAFF_FALLBACK_CHANNEL_ID: 0
 
+    # DM the previous top bidder when they are outbid on a slot.
+    DM_OUTBID_ALERTS: false
+
 Stripe:
     # Stripe secret key (sk_live_... or sk_test_...).
     # You can use STRIPE_API_KEY instead of SECRET_KEY — the bot accepts either name.
@@ -68,12 +71,27 @@ Tickets:
     STAFF_ROLE_IDS: []
     # Example: [123456789012345678, 987654321098765432]
 
-    # Labels for the four ticket buttons (keys must stay apply/support/bugs/general)
+    # Channel where ticket transcripts are posted when a ticket is closed
+    TRANSCRIPT_CHANNEL_ID: 0
+
+    # Channel where approved partnership submissions are reposted (copy channel ID). Use 0 to disable Accept repost.
+    PARTNERSHIP_ANNOUNCE_CHANNEL_ID: 0
+
+    # Labels for ticket panel buttons (keys must stay apply/support/bugs/general/partner)
     CATEGORIES:
         apply: "Apply"
         support: "Support"
         bugs: "Bugs"
         general: "General"
+        partner: "Partner"
+
+Welcome:
+    # Channel where join logs are posted when members join. Use 0 to disable.
+    CHANNEL_ID: 1501006328544366722
+
+Leave:
+    # Channel where leave logs are posted when members leave. Use 0 to disable.
+    CHANNEL_ID: 0
 
 AutoMod:
     # Master switch for the on_message AutoMod listener
@@ -84,6 +102,10 @@ AutoMod:
 
     # Role IDs that skip AutoMod (Manage Messages / Admin always skip)
     BYPASS_ROLE_IDS: []
+
+    # Channel IDs where links/invites are allowed (e.g., self-promo)
+    ALLOW_LINK_CHANNEL_IDS: []
+    # Example: [123456789012345678]
 
     # Delete messages that look like Discord invite links
     BLOCK_INVITES: true

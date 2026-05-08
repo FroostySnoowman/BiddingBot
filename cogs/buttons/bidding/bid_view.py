@@ -13,6 +13,7 @@ embed_color = _cfg['General']['EMBED_COLOR']
 bidder_role_id = _cfg.get('Bidding', {}).get('BIDDER_ROLE_ID', 0)
 min_bid_cents = _cfg.get('Bidding', {}).get('MIN_BID_CENTS', 100)
 _bid_log_channel_id = int(_cfg.get('Bidding', {}).get('BID_LOG_CHANNEL_ID', 0) or 0)
+_dm_outbid_alerts = bool(_cfg.get('Bidding', {}).get('DM_OUTBID_ALERTS', False))
 
 class BidAmountModal(discord.ui.Modal, title='Place bid'):
     amount = discord.ui.TextInput(
@@ -49,21 +50,35 @@ class BidAmountModal(discord.ui.Modal, title='Place bid'):
             await interaction.response.send_message(f'Bid must be at least ${min_bid_cents / 100:.2f}.', ephemeral=True)
             return
 
-        prev = await bidding_db.max_bid_for_slot(cycle['id'], self.slot)
-        if prev is not None and amount_cents <= prev:
-            await interaction.response.send_message(f'Your bid must be higher than the current high (${prev / 100:.2f}).', ephemeral=True)
+        prev_high = await bidding_db.current_high_bid_for_slot(cycle['id'], self.slot)
+        prev_amount = prev_high[0] if prev_high is not None else None
+        prev_user_id = prev_high[1] if prev_high is not None else None
+        if prev_amount is not None and amount_cents <= prev_amount:
+            await interaction.response.send_message(f'Your bid must be higher than the current high (${prev_amount / 100:.2f}).', ephemeral=True)
             return
 
         await bidding_db.insert_bid(cycle['id'], self.slot, interaction.user.id, amount_cents)
+
+        if _dm_outbid_alerts and prev_user_id and prev_user_id != interaction.user.id:
+            outbid_user = interaction.guild and interaction.guild.get_member(prev_user_id)
+            if outbid_user is None:
+                try:
+                    outbid_user = await interaction.client.fetch_user(prev_user_id)
+                except discord.HTTPException:
+                    outbid_user = None
+            if outbid_user is not None:
+                closes_utc = parse_utc_iso(cycle['closes_at_utc'])
+                try:
+                    await outbid_user.send(f'You were outbid on **Slot {self.slot}**.\nNew high bid: **${amount_cents / 100:.2f}**\nAuction ends: {discord.utils.format_dt(closes_utc, style="F")}')
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
 
         if _bid_log_channel_id and interaction.guild:
             log_ch = interaction.guild.get_channel(_bid_log_channel_id)
             if isinstance(log_ch, discord.TextChannel):
                 month_str = f"{cycle['target_year']}-{cycle['target_month']:02d}"
-                prev_str = f' (prev high: ${prev / 100:.2f})' if prev is not None else ''
-                await log_ch.send(
-                    f'**Slot {self.slot}** — {interaction.user.mention} bid **${amount_cents / 100:.2f}**{prev_str} | {month_str}'
-                )
+                prev_str = f' (prev high: ${prev_amount / 100:.2f})' if prev_amount is not None else ''
+                await log_ch.send(f'**Slot {self.slot}** — {interaction.user.mention} bid **${amount_cents / 100:.2f}**{prev_str} | {month_str}')
 
         closes_utc = parse_utc_iso(cycle['closes_at_utc'])
         ty, tm = cycle['target_year'], cycle['target_month']

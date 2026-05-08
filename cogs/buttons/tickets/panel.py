@@ -1,9 +1,9 @@
+import asyncio
 import discord
 import html
 import io
 import yaml
 import zipfile
-from datetime import timezone
 from cogs.functions import bidding_db
 
 with open('config.yml', 'r') as file:
@@ -16,11 +16,108 @@ _category_id = int(_tickets.get('TICKET_CATEGORY_ID', 0) or 0)
 _staff_role_ids = list(_tickets.get('STAFF_ROLE_IDS', []) or [])
 _categories = _tickets.get('CATEGORIES', {}) or {}
 _transcript_channel_id = int(_tickets.get('TRANSCRIPT_CHANNEL_ID', 0) or 0)
+_announce_channel_id = int(_tickets.get('PARTNERSHIP_ANNOUNCE_CHANNEL_ID', 0) or 0)
+
+_PARTNERSHIP_EVIDENCE_PROMPT = (
+    'Please send our AD with an @everyone ping and attach a FULL screenshot of evidence that you sent our AD.\n'
+    'Copy of our AD below:\n\n'
+    '**MASSIVE $100 USD GIVEAWAY**\n'
+    'JOIN THE SERVER AND PARTNER TO WIN\n'
+    'SMP Finder is a MC community and Minecraft server list.\n'
+    '💰$100 PRIZE!!!\n'
+    '🔗 https://www.smpfinder.com\n'
+    '👑 https://discord.gg/findsmp | @everyone'
+)
+
+PARTNERSHIP_QA_STEPS: list[tuple[str, str, bool]] = [
+    ('advertisement', 'Please provide your full advertisement without any links and only use normal emojis!', False),
+    ('server_name', 'What is your server name?', False),
+    ('evidence', _PARTNERSHIP_EVIDENCE_PROMPT, True),
+    ('logo', 'Can you provide the logo to your server?', True),
+    ('visibility', 'Is your server public or private?', False),
+    ('listed', 'Is your server listed on our free website https://www.smpfinder.com', False),
+]
 
 def _staff_or_manage(member: discord.Member) -> bool:
     if member.guild_permissions.manage_guild or member.guild_permissions.administrator:
         return True
     return any(r.id in _staff_role_ids for r in member.roles)
+
+def _truncate(s: str, max_len: int = 1024) -> str:
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + '…'
+
+def _message_has_illegal_ping(message: discord.Message) -> bool:
+    if message.mention_everyone:
+        return True
+    content = (message.content or '').lower()
+    if '@everyone' in content or '@here' in content:
+        return True
+    return False
+
+async def _close_and_transcript(bot: discord.Client, ch: discord.TextChannel, closer: discord.Member):
+    guild = ch.guild
+    opener_id = None
+    ticket_type = 'unknown'
+    if ch.topic:
+        for part in ch.topic.split('|'):
+            if part.startswith('opener_id:'):
+                try:
+                    opener_id = int(part.split(':', 1)[1])
+                except ValueError:
+                    pass
+            elif part.startswith('type:'):
+                ticket_type = part.split(':', 1)[1]
+
+    opener_user = guild.get_member(opener_id) if opener_id else None
+    opener_str = f'{opener_user} ({opener_id})' if opener_user else (str(opener_id) if opener_id else 'Unknown')
+    closer_str = f'{closer} ({closer.id})'
+    closed_at = discord.utils.utcnow()
+
+    transcript_ch = guild.get_channel(_transcript_channel_id)
+    if isinstance(transcript_ch, discord.TextChannel):
+        messages = []
+        async for msg in ch.history(limit=None, oldest_first=True):
+            messages.append({
+                'ts': msg.created_at.strftime('%Y-%m-%d %H:%M:%S UTC'),
+                'author': str(msg.author),
+                'uid': msg.author.id,
+                'content': msg.content or '',
+                'embeds': [
+                    {'title': e.title or '', 'description': e.description or ''}
+                    for e in msg.embeds
+                ],
+                'attachments': [a.url for a in msg.attachments],
+            })
+
+        ticket_description = None
+        if messages:
+            first_embeds = messages[0]['embeds']
+            if first_embeds and first_embeds[0].get('description'):
+                ticket_description = first_embeds[0]['description']
+
+        html_bytes = _build_html_transcript(ch.name, ticket_type, opener_str, closer_str, messages)
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f'transcript-{ch.name}.html', html_bytes)
+        zip_buf.seek(0)
+        html_file = discord.File(zip_buf, filename=f'transcript-{ch.name}.zip')
+
+        em = discord.Embed(title=f'Ticket closed — #{ch.name}', description=ticket_description or '', color=discord.Color.from_str(embed_color), timestamp=closed_at)
+        em.add_field(name='Opened by', value=opener_user.mention if opener_user else opener_str, inline=True)
+        em.add_field(name='Closed by', value=closer.mention, inline=True)
+        em.set_footer(text='Transcript attached')
+
+        try:
+            await transcript_ch.send(embed=em, file=html_file)
+        except discord.HTTPException:
+            pass
+
+    try:
+        await ch.delete()
+    except discord.HTTPException:
+        pass
 
 def _build_html_transcript(ticket_name: str, ticket_type: str, opener: str, closer: str, messages: list[dict]) -> bytes:
     color = embed_color.lstrip('#')
@@ -145,6 +242,275 @@ async def _open_ticket(interaction: discord.Interaction, key: str, title: str, b
     await ch.send(content=header, embed=em, view=v)
     await interaction.followup.send(f'Ticket created: {ch.mention}', ephemeral=True)
 
+def _copy_embed_from_src(src: discord.Embed) -> discord.Embed:
+    out = discord.Embed(title=src.title, description=src.description, color=src.color)
+    if src.url:
+        out.url = src.url
+    if src.timestamp:
+        out.timestamp = src.timestamp
+    if getattr(src.footer, 'text', None):
+        kw: dict = {'text': src.footer.text}
+        if src.footer.icon_url:
+            kw['icon_url'] = src.footer.icon_url
+        out.set_footer(**kw)
+    for field in src.fields:
+        out.add_field(name=field.name, value=field.value, inline=field.inline)
+    if src.image and src.image.url:
+        out.set_image(url=src.image.url)
+    if src.thumbnail and src.thumbnail.url:
+        out.set_thumbnail(url=src.thumbnail.url)
+    return out
+
+class PartnershipReviewView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label='Accept', style=discord.ButtonStyle.success, custom_id='partnership_review_accept')
+    async def accept_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not isinstance(interaction.user, discord.Member) or not _staff_or_manage(interaction.user):
+            await interaction.response.send_message('Only staff can use this.', ephemeral=True)
+            return
+        ch = interaction.channel
+        if not isinstance(ch, discord.TextChannel):
+            await interaction.response.send_message('Invalid channel.', ephemeral=True)
+            return
+        msg = interaction.message
+        if msg is None or not msg.embeds:
+            await interaction.response.send_message('Missing embed.', ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        if not _announce_channel_id:
+            await interaction.followup.send('Set PARTNERSHIP_ANNOUNCE_CHANNEL_ID in config.yml before approving.', ephemeral=True)
+            return
+
+        announce_ch = ch.guild.get_channel(_announce_channel_id)
+        if not isinstance(announce_ch, discord.TextChannel):
+            await interaction.followup.send('Partnership announcement channel not found.', ephemeral=True)
+            return
+
+        opener_id = None
+        if ch.topic:
+            for part in ch.topic.split('|'):
+                if part.startswith('opener_id:'):
+                    try:
+                        opener_id = int(part.split(':', 1)[1])
+                    except ValueError:
+                        pass
+
+        target = ch.guild.get_member(opener_id) if (opener_id and ch.guild) else None
+        if target is None and opener_id:
+            try:
+                target = await interaction.client.fetch_user(opener_id)
+            except discord.NotFound:
+                target = None
+
+        embed_copy = _copy_embed_from_src(msg.embeds[0])
+        new_files: list[discord.File] = []
+        for att in msg.attachments:
+            try:
+                data = await att.read()
+                new_files.append(discord.File(io.BytesIO(data), filename=att.filename))
+            except discord.HTTPException:
+                pass
+
+        try:
+            posted = await announce_ch.send(embed=embed_copy, files=new_files[:10])
+            jump_url = posted.jump_url
+        except discord.HTTPException:
+            await interaction.followup.send('Could not post to the partnership announcement channel.', ephemeral=True)
+            return
+
+        dm_ok = False
+        if target is not None:
+            try:
+                await target.send(f'Your partnership application has been approved! You can view the approved post here: {jump_url}')
+                dm_ok = True
+            except discord.Forbidden:
+                pass
+
+        await _close_and_transcript(interaction.client, ch, interaction.user)
+
+        if dm_ok:
+            await interaction.followup.send('Partnership approved, posted, and ticket closed.', ephemeral=True)
+        elif target is None:
+            await interaction.followup.send('Posted and ticket closed, but the opener could not be found to send a DM.', ephemeral=True)
+        else:
+            await interaction.followup.send('Posted and ticket closed, but could not DM the user (DMs may be closed).', ephemeral=True)
+
+    @discord.ui.button(label='Deny', style=discord.ButtonStyle.danger, custom_id='partnership_review_deny')
+    async def deny_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not isinstance(interaction.user, discord.Member) or not _staff_or_manage(interaction.user):
+            await interaction.response.send_message('Only staff can use this.', ephemeral=True)
+            return
+        ch = interaction.channel
+        if not isinstance(ch, discord.TextChannel):
+            await interaction.response.send_message('Invalid channel.', ephemeral=True)
+            return
+
+        staff_id = interaction.user.id
+        await interaction.response.send_message('Reply in this channel with the denial reason.', ephemeral=True)
+        await ch.send(f'{interaction.user.mention} please type the reason for denial.')
+
+        try:
+            reason_msg = await interaction.client.wait_for('message', timeout=600.0, check=lambda m, c=ch, s=staff_id: m.channel.id == c.id and m.author.id == s and not m.author.bot)
+        except asyncio.TimeoutError:
+            await ch.send('Denial reason timed out. Use Deny again or Close the ticket.')
+            return
+
+        reason = (reason_msg.content or '').strip() or 'No reason provided.'
+
+        opener_id = None
+        if ch.topic:
+            for part in ch.topic.split('|'):
+                if part.startswith('opener_id:'):
+                    try:
+                        opener_id = int(part.split(':', 1)[1])
+                    except ValueError:
+                        pass
+
+        target = ch.guild.get_member(opener_id) if (opener_id and ch.guild) else None
+        if target is None and opener_id:
+            try:
+                target = await interaction.client.fetch_user(opener_id)
+            except discord.NotFound:
+                target = None
+
+        if target is not None:
+            try:
+                await target.send(f'Your partnership application was denied.\nReason: {reason}')
+            except discord.Forbidden:
+                pass
+
+        await _close_and_transcript(interaction.client, ch, interaction.user)
+
+async def _ask_partner_step(bot: discord.Client, channel: discord.TextChannel, opener: discord.abc.User, prompt: str, collect_attachments: bool) -> dict | None:
+    mention_target = opener
+    if channel.guild:
+        mention_target = channel.guild.get_member(opener.id) or opener
+    allowed = discord.AllowedMentions(everyone=False, roles=False, users=[mention_target] if mention_target else [])
+
+    while True:
+        await channel.send(f'{mention_target.mention} {prompt}', allowed_mentions=allowed)
+        try:
+            msg = await bot.wait_for('message', timeout=1800.0, check=lambda m, c=channel, uid=opener.id: m.channel.id == c.id and m.author.id == uid and not m.author.bot)
+        except asyncio.TimeoutError:
+            await channel.send('Question timed out — staff can close this ticket.')
+            return None
+
+        if _message_has_illegal_ping(msg):
+            await channel.send('Please include no pings in your message, respond to the previous question again.',)
+            continue
+
+        text = (msg.content or '').strip()
+        files: list[tuple[str, bytes]] = []
+        if collect_attachments and msg.attachments:
+            for att in msg.attachments:
+                try:
+                    data = await att.read()
+                    files.append((att.filename or 'attachment', data))
+                except (discord.HTTPException, OSError):
+                    pass
+
+        return {'text': text, 'files': files}
+
+async def _run_partnership_qa(bot: discord.Client, channel: discord.TextChannel, opener: discord.abc.User, modal_values: dict[str, str]):
+    answers: dict[str, object] = {}
+    for key, prompt, want_files in PARTNERSHIP_QA_STEPS:
+        step = await _ask_partner_step(bot, channel, opener, prompt, want_files)
+        if step is None:
+            return
+        if want_files:
+            answers[key] = step
+        else:
+            answers[key] = step['text']
+
+    mem = channel.guild.get_member(opener.id) if channel.guild else None
+    applicant_val = mem.mention if mem else f'<@{opener.id}>'
+
+    ev = answers['evidence']  # type: ignore
+    lo = answers['logo']  # type: ignore
+    assert isinstance(ev, dict) and isinstance(lo, dict)
+
+    ev_text = _truncate((ev.get('text') or '') or '\u200b')
+    lo_text = _truncate((lo.get('text') or '') or '\u200b')
+
+    em = discord.Embed(title='Complete Partnership Submission', color=discord.Color.from_str(embed_color))
+    em.add_field(name='👤 Applicant', value=applicant_val, inline=False)
+    em.add_field(name='🏰 Server Name', value=_truncate(str(answers['server_name'])), inline=False)
+    em.add_field(name='👑 Ownership', value=_truncate(modal_values['ownership']), inline=False)
+    em.add_field(name='🤝 Previous Partner', value=_truncate(modal_values['prev_partner']), inline=False)
+    em.add_field(name='🛒 Store', value=_truncate(modal_values['store']), inline=False)
+    em.add_field(name='🔗 Discord Invite', value=_truncate(modal_values['discord_invite']), inline=False)
+    em.add_field(name='💬 Advertisement', value=_truncate(str(answers['advertisement'])), inline=False)
+    em.add_field(name='📸 Evidence', value=ev_text, inline=False)
+    em.add_field(name='🖌️ Logo', value=lo_text, inline=False)
+    em.add_field(name='🔒 Visibility', value=_truncate(str(answers['visibility'])), inline=False)
+    em.add_field(name='🌐 Listed on smpfinder', value=_truncate(str(answers['listed'])), inline=False)
+
+    review_files: list[discord.File] = []
+    for name, data in ev.get('files', []):
+        review_files.append(discord.File(io.BytesIO(data), filename=name))
+    for name, data in lo.get('files', []):
+        review_files.append(discord.File(io.BytesIO(data), filename=name))
+
+    await channel.send(embed=em, view=PartnershipReviewView(), files=review_files[:10])
+
+async def _open_partnership_ticket(interaction: discord.Interaction, modal_values: dict[str, str]):
+    await interaction.response.defer(ephemeral=True)
+    guild = interaction.guild
+    if guild is None or guild.id != guild_id:
+        await interaction.followup.send('Wrong server.', ephemeral=True)
+        return
+
+    num = await bidding_db.next_ticket_number()
+    name = f'partnership-{num}'
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True,
+        ),
+    }
+    for rid in _staff_role_ids:
+        role = guild.get_role(rid)
+        if role:
+            overwrites[role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            )
+
+    parent = guild.get_channel(_category_id)
+    if not isinstance(parent, discord.CategoryChannel):
+        await interaction.followup.send('Ticket category not configured.', ephemeral=True)
+        return
+
+    topic = f'opener_id:{interaction.user.id}|type:partner'
+    ch = await guild.create_text_channel(name=name, category=parent, overwrites=overwrites, topic=topic)
+    pings = ' '.join(f'<@&{rid}>' for rid in _staff_role_ids)
+    header = f'{interaction.user.mention} {pings}'.strip()
+
+    info = discord.Embed(title='Partnership Application Info', color=discord.Color.from_str(embed_color))
+    info.add_field(name='👤 Applicant', value=interaction.user.mention, inline=False)
+    info.add_field(name='👑 Ownership', value=modal_values['ownership'], inline=False)
+    info.add_field(name='🤝 Previous Partner', value=modal_values['prev_partner'], inline=False)
+    info.add_field(name='🛒 Store', value=modal_values['store'], inline=False)
+    info.add_field(name='🔗 Discord Invite', value=modal_values['discord_invite'], inline=False)
+    info.set_footer(text='Staff can close with the lock button. Answer the bot questions below.')
+
+    v = TicketCloseView()
+    await ch.send(content=header, embed=info, view=v)
+    await interaction.followup.send(f'Ticket created: {ch.mention}', ephemeral=True)
+
+    asyncio.create_task(_run_partnership_qa(interaction.client, ch, interaction.user, dict(modal_values)))
+
 class ApplyModal(discord.ui.Modal, title='Apply'):
     q1 = discord.ui.TextInput(
         label='Why do you want to join?',
@@ -244,9 +610,48 @@ class GeneralModal(discord.ui.Modal, title='General'):
             ],
         )
 
+class PartnerModal(discord.ui.Modal, title='Partner'):
+    ownership = discord.ui.TextInput(
+        label='Do you own the server? (Yes/No)',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=100,
+    )
+    prev_partner = discord.ui.TextInput(
+        label='Previous partner? (Yes/No)',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=100,
+    )
+    store = discord.ui.TextInput(
+        label='Store link (N/A if none)',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=500,
+    )
+    discord_invite = discord.ui.TextInput(
+        label='Discord invite link',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=500,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        modal_values = {
+            'ownership': self.ownership.value.strip(),
+            'prev_partner': self.prev_partner.value.strip(),
+            'store': self.store.value.strip(),
+            'discord_invite': self.discord_invite.value.strip(),
+        }
+        await _open_partnership_ticket(interaction, modal_values)
+
 class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+        for item in self.children:
+            if getattr(item, 'custom_id', None) == 'ticket_panel_partner':
+                item.label = str(_categories.get('partner', 'Partner'))
+                break
 
     @discord.ui.button(label='Apply', style=discord.ButtonStyle.blurple, custom_id='ticket_panel_apply')
     async def btn_apply(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -264,6 +669,10 @@ class TicketPanelView(discord.ui.View):
     async def btn_general(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(GeneralModal())
 
+    @discord.ui.button(label='Partner', style=discord.ButtonStyle.success, custom_id='ticket_panel_partner', row=1)
+    async def btn_partner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(PartnerModal())
+
 class TicketCloseView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -279,67 +688,4 @@ class TicketCloseView(discord.ui.View):
         if not isinstance(ch, discord.TextChannel):
             return
 
-        # parse opener + type from channel topic
-        opener_id = None
-        ticket_type = 'unknown'
-        if ch.topic:
-            for part in ch.topic.split('|'):
-                if part.startswith('opener_id:'):
-                    try:
-                        opener_id = int(part.split(':', 1)[1])
-                    except ValueError:
-                        pass
-                elif part.startswith('type:'):
-                    ticket_type = part.split(':', 1)[1]
-
-        opener_user = interaction.guild.get_member(opener_id) if (opener_id and interaction.guild) else None
-        opener_str = f'{opener_user} ({opener_id})' if opener_user else (str(opener_id) if opener_id else 'Unknown')
-        closer_str = f'{interaction.user} ({interaction.user.id})'
-        closed_at = discord.utils.utcnow()
-
-        transcript_ch = interaction.guild and interaction.guild.get_channel(_transcript_channel_id)
-        if isinstance(transcript_ch, discord.TextChannel):
-            messages = []
-            async for msg in ch.history(limit=None, oldest_first=True):
-                messages.append({
-                    'ts': msg.created_at.strftime('%Y-%m-%d %H:%M:%S UTC'),
-                    'author': str(msg.author),
-                    'uid': msg.author.id,
-                    'content': msg.content or '',
-                    'embeds': [
-                        {'title': e.title or '', 'description': e.description or ''}
-                        for e in msg.embeds
-                    ],
-                    'attachments': [a.url for a in msg.attachments],
-                })
-
-            # pull the modal answers from the first message's embed description
-            ticket_description = None
-            if messages:
-                first_embeds = messages[0]['embeds']
-                if first_embeds and first_embeds[0].get('description'):
-                    ticket_description = first_embeds[0]['description']
-
-            html_bytes = _build_html_transcript(ch.name, ticket_type, opener_str, closer_str, messages)
-            zip_buf = io.BytesIO()
-            with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-                zf.writestr(f'transcript-{ch.name}.html', html_bytes)
-            zip_buf.seek(0)
-            html_file = discord.File(zip_buf, filename=f'transcript-{ch.name}.zip')
-
-            em = discord.Embed(
-                title=f'Ticket closed — #{ch.name}',
-                description=ticket_description or '',
-                color=discord.Color.from_str(embed_color),
-                timestamp=closed_at,
-            )
-            em.add_field(name='Opened by', value=opener_user.mention if opener_user else opener_str, inline=True)
-            em.add_field(name='Closed by', value=interaction.user.mention, inline=True)
-            em.set_footer(text='Transcript attached')
-
-            await transcript_ch.send(embed=em, file=html_file)
-
-        try:
-            await ch.delete()
-        except discord.HTTPException:
-            pass
+        await _close_and_transcript(interaction.client, ch, interaction.user)

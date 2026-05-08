@@ -14,6 +14,7 @@ _am = _cfg.get('AutoMod', {}) or {}
 _enabled = bool(_am.get('ENABLED', True))
 _log_id = int(_am.get('LOG_CHANNEL_ID', 0) or 0)
 _bypass = list(_am.get('BYPASS_ROLE_IDS', []) or [])
+_allow_link_channel_ids = {int(cid) for cid in (_am.get('ALLOW_LINK_CHANNEL_IDS', []) or []) if int(cid)}
 _block_invites = bool(_am.get('BLOCK_INVITES', True))
 _blocked_words = [w.lower() for w in (_am.get('BLOCKED_WORDS', []) or []) if w]
 _max_mentions = int(_am.get('MAX_MENTIONS', 8))
@@ -48,10 +49,11 @@ class AutoModCog(commands.Cog):
         if self._bypass(message.author):
             return
 
+        allow_links_here = message.channel.id in _allow_link_channel_ids
         content = message.content or ''
         reason = None
 
-        if _block_invites and _invite_re.search(content):
+        if _block_invites and not allow_links_here and _invite_re.search(content):
             reason = 'invite link'
 
         if reason is None and _blocked_words:

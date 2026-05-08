@@ -8,6 +8,7 @@ with open('config.yml', 'r') as file:
 guild_id = _cfg['General']['GUILD_ID']
 embed_color = _cfg['General']['EMBED_COLOR']
 _welcome_channel_id = int(_cfg.get('Welcome', {}).get('CHANNEL_ID', 0) or 0)
+_leave_channel_id = int(_cfg.get('Leave', {}).get('CHANNEL_ID', 0) or 0)
 
 class WelcomeCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -28,6 +29,24 @@ class WelcomeCog(commands.Cog):
         if member.guild.banner:
             em.set_image(url=member.guild.banner.url)
         em.set_footer(text=f'You are member #{member.guild.member_count} • SMPFinder')
+        await ch.send(embed=em)
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        if member.guild.id != guild_id:
+            return
+        if not _leave_channel_id:
+            return
+        ch = member.guild.get_channel(_leave_channel_id)
+        if not isinstance(ch, discord.TextChannel):
+            return
+
+        em = discord.Embed(title='Member Left', description=f'**{member}** (`{member.id}`) has left the server.', color=discord.Color.from_str(embed_color), timestamp=discord.utils.utcnow())
+        em.set_thumbnail(url=member.display_avatar.url)
+        em.add_field(name='Account Created', value=discord.utils.format_dt(member.created_at, style='F'), inline=False)
+        if member.joined_at:
+            em.add_field(name='Joined Server', value=discord.utils.format_dt(member.joined_at, style='F'), inline=False)
+        em.set_footer(text=f'Members now: {member.guild.member_count}')
         await ch.send(embed=em)
 
 async def setup(bot: commands.Bot):

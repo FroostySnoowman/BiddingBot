@@ -2,7 +2,7 @@ import discord
 import yaml
 from discord import app_commands
 from discord.ext import commands
-from cogs.buttons.tickets.panel import TicketCloseView, TicketPanelView
+from cogs.buttons.tickets.panel import PartnershipReviewView, TicketCloseView, TicketPanelView
 
 with open('config.yml', 'r') as file:
     _cfg = yaml.safe_load(file)
@@ -15,6 +15,7 @@ class TicketsCog(commands.Cog):
         self.bot = bot
         self.bot.add_view(TicketPanelView())
         self.bot.add_view(TicketCloseView())
+        self.bot.add_view(PartnershipReviewView())
 
     @app_commands.command(name='ticketpanel', description='Post the ticket panel (admin).')
     @app_commands.default_permissions(manage_guild=True)

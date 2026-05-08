@@ -75,6 +75,15 @@ async def max_bid_for_slot(cycle_id: int, slot: int) -> int | None:
             return int(row[0])
     return None
 
+async def current_high_bid_for_slot(cycle_id: int, slot: int) -> tuple[int, int] | None:
+    """Return (amount_cents, user_id) for the current high bid on a slot."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT amount_cents, user_id FROM bids WHERE cycle_id = ? AND slot = ? ORDER BY amount_cents DESC, created_at ASC, id ASC LIMIT 1", (cycle_id, slot))
+        row = await cur.fetchone()
+        if row is None:
+            return None
+        return int(row[0]), int(row[1])
+
 async def insert_bid(cycle_id: int, slot: int, user_id: int, amount_cents: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("INSERT INTO bids (cycle_id, slot, user_id, amount_cents) VALUES (?, ?, ?, ?)", (cycle_id, slot, user_id, amount_cents))
