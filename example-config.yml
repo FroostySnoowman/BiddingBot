@@ -74,8 +74,13 @@ Tickets:
     # Channel where ticket transcripts are posted when a ticket is closed
     TRANSCRIPT_CHANNEL_ID: 0
 
-    # Channel where approved partnership submissions are reposted (copy channel ID). Use 0 to disable Accept repost.
+    # Forum channel where approved partnerships create a NEW POST (thread). Use a forum channel ID.
+    # Use 0 to disable Accept repost. Legacy: a normal text channel still works (single message + embed).
     PARTNERSHIP_ANNOUNCE_CHANNEL_ID: 0
+
+    # Optional forum tag IDs to apply to each new partnership post (from Server Settings → Channels → your forum → Tags).
+    PARTNERSHIP_FORUM_TAG_IDS: []
+    # Example: [123456789012345678, 987654321098765432]
 
     # Labels for ticket panel buttons (keys must stay apply/support/bugs/general/partner)
     CATEGORIES:

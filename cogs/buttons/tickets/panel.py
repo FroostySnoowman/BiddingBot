@@ -17,6 +17,18 @@ _staff_role_ids = list(_tickets.get('STAFF_ROLE_IDS', []) or [])
 _categories = _tickets.get('CATEGORIES', {}) or {}
 _transcript_channel_id = int(_tickets.get('TRANSCRIPT_CHANNEL_ID', 0) or 0)
 _announce_channel_id = int(_tickets.get('PARTNERSHIP_ANNOUNCE_CHANNEL_ID', 0) or 0)
+_partnership_forum_tag_ids: list[int] = []
+for _tid in _tickets.get('PARTNERSHIP_FORUM_TAG_IDS', []) or []:
+    try:
+        _partnership_forum_tag_ids.append(int(_tid))
+    except (TypeError, ValueError):
+        pass
+
+# Field names must match _run_partnership_qa final embed
+_FIELD_SERVER_NAME = '🏰 Server Name'
+_FIELD_ADVERTISEMENT = '💬 Advertisement'
+_FIELD_DISCORD_INVITE = '🔗 Discord Invite'
+_LOGO_FILENAME = 'partnership_logo.png'
 
 _PARTNERSHIP_EVIDENCE_PROMPT = (
     'Please send our AD with an @everyone ping and attach a FULL screenshot of evidence that you sent our AD.\n'
@@ -242,6 +254,71 @@ async def _open_ticket(interaction: discord.Interaction, key: str, title: str, b
     await ch.send(content=header, embed=em, view=v)
     await interaction.followup.send(f'Ticket created: {ch.mention}', ephemeral=True)
 
+def _embed_field_value(embed: discord.Embed, field_name: str) -> str | None:
+    for f in embed.fields:
+        if f.name == field_name:
+            v = (f.value or '').strip()
+            return v if v else None
+    return None
+
+def _resolve_forum_applied_tags(forum: discord.ForumChannel) -> list[discord.ForumTag]:
+    out: list[discord.ForumTag] = []
+    for tid in _partnership_forum_tag_ids:
+        t = forum.get_tag(tid)
+        if t is not None:
+            out.append(t)
+    return out
+
+async def _create_partnership_forum_post(
+    forum: discord.ForumChannel,
+    review_embed: discord.Embed,
+    review_msg: discord.Message,
+):
+    server_name = _embed_field_value(review_embed, _FIELD_SERVER_NAME) or 'Partnership'
+    advertisement = _embed_field_value(review_embed, _FIELD_ADVERTISEMENT) or ''
+    invite = _embed_field_value(review_embed, _FIELD_DISCORD_INVITE) or ''
+
+    thread_name = server_name[:100]
+    text_body = _truncate(advertisement, 4096)
+    welcome_title = _truncate(f'Welcome to {server_name}', 256)
+
+    content = f'{server_name}\n\nSMP Finder: {server_name}'
+
+    pub = discord.Embed(
+        title=welcome_title,
+        description=text_body,
+        color=discord.Color.from_str(embed_color),
+        timestamp=discord.utils.utcnow(),
+    )
+    if invite:
+        pub.add_field(name='🔗 Discord Invite', value=_truncate(invite, 1024), inline=False)
+
+    kwargs: dict = {
+        'name': thread_name,
+        'content': content,
+        'embed': pub,
+    }
+
+    files: list[discord.File] = []
+    if review_msg.attachments:
+        logo_att = review_msg.attachments[-1]
+        try:
+            data = await logo_att.read()
+        except discord.HTTPException:
+            data = None
+        if data:
+            files.append(discord.File(io.BytesIO(data), filename=_LOGO_FILENAME))
+            pub.set_image(url=f'attachment://{_LOGO_FILENAME}')
+
+    if files:
+        kwargs['files'] = files
+
+    applied = _resolve_forum_applied_tags(forum)
+    if applied:
+        kwargs['applied_tags'] = applied
+
+    return await forum.create_thread(**kwargs)
+
 def _copy_embed_from_src(src: discord.Embed) -> discord.Embed:
     out = discord.Embed(title=src.title, description=src.description, color=src.color)
     if src.url:
@@ -286,7 +363,7 @@ class PartnershipReviewView(discord.ui.View):
             return
 
         announce_ch = ch.guild.get_channel(_announce_channel_id)
-        if not isinstance(announce_ch, discord.TextChannel):
+        if announce_ch is None:
             await interaction.followup.send('Partnership announcement channel not found.', ephemeral=True)
             return
 
@@ -306,18 +383,27 @@ class PartnershipReviewView(discord.ui.View):
             except discord.NotFound:
                 target = None
 
-        embed_copy = _copy_embed_from_src(msg.embeds[0])
-        new_files: list[discord.File] = []
-        for att in msg.attachments:
-            try:
-                data = await att.read()
-                new_files.append(discord.File(io.BytesIO(data), filename=att.filename))
-            except discord.HTTPException:
-                pass
-
         try:
-            posted = await announce_ch.send(embed=embed_copy, files=new_files[:10])
-            jump_url = posted.jump_url
+            if isinstance(announce_ch, discord.ForumChannel):
+                twm = await _create_partnership_forum_post(announce_ch, msg.embeds[0], msg)
+                jump_url = twm.thread.jump_url
+            elif isinstance(announce_ch, discord.TextChannel):
+                embed_copy = _copy_embed_from_src(msg.embeds[0])
+                new_files: list[discord.File] = []
+                for att in msg.attachments:
+                    try:
+                        data = await att.read()
+                        new_files.append(discord.File(io.BytesIO(data), filename=att.filename))
+                    except discord.HTTPException:
+                        pass
+                posted = await announce_ch.send(embed=embed_copy, files=new_files[:10])
+                jump_url = posted.jump_url
+            else:
+                await interaction.followup.send(
+                    'Partnership announcement channel must be a forum channel or a text channel.',
+                    ephemeral=True,
+                )
+                return
         except discord.HTTPException:
             await interaction.followup.send('Could not post to the partnership announcement channel.', ephemeral=True)
             return
