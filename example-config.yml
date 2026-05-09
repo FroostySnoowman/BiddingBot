@@ -111,6 +111,7 @@ AutoMod:
     # Channel IDs where links/invites are allowed (e.g., self-promo)
     ALLOW_LINK_CHANNEL_IDS: []
     # Example: [123456789012345678]
+    # Ticket channels opened by this bot always skip invite blocking (topic contains opener_id:|type:).
 
     # Delete messages that look like Discord invite links
     BLOCK_INVITES: true

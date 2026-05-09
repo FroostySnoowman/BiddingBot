@@ -24,6 +24,12 @@ _caps_ratio = float(_am.get('MAX_CAPS_RATIO', 0.7))
 
 _invite_re = re.compile(r'(discord\.gg/[\w-]+|discord(?:app)?\.com/invite/[\w-]+)', re.IGNORECASE)
 
+def _is_bot_ticket_channel(channel: discord.abc.GuildChannel) -> bool:
+    if not isinstance(channel, discord.TextChannel):
+        return False
+    topic = channel.topic or ''
+    return 'opener_id:' in topic and '|type:' in topic
+
 class AutoModCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -49,7 +55,7 @@ class AutoModCog(commands.Cog):
         if self._bypass(message.author):
             return
 
-        allow_links_here = message.channel.id in _allow_link_channel_ids
+        allow_links_here = (message.channel.id in _allow_link_channel_ids or _is_bot_ticket_channel(message.channel))
         content = message.content or ''
         reason = None
 
