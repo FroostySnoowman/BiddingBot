@@ -44,8 +44,8 @@ Bidding:
     # Channel for Stripe/DM failures and notices. Use 0 to skip.
     STAFF_FALLBACK_CHANNEL_ID: 0
 
-    # DM the previous top bidder when they are outbid on a slot.
-    DM_OUTBID_ALERTS: false
+    # DM the previous top bidder when they are outbid on a slot. Set false to disable.
+    DM_OUTBID_ALERTS: true
 
 Stripe:
     # Stripe secret key (sk_live_... or sk_test_...).

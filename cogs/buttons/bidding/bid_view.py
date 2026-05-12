@@ -3,6 +3,7 @@ import re
 import yaml
 from discord.ext import commands
 from cogs.functions import bidding_db
+from cogs.functions.dm_footer import SMPFINDER_PROMO
 from cogs.functions.bidding_time import compute_closes_at, parse_utc_iso
 
 with open('config.yml', 'r') as file:
@@ -13,7 +14,7 @@ embed_color = _cfg['General']['EMBED_COLOR']
 bidder_role_id = _cfg.get('Bidding', {}).get('BIDDER_ROLE_ID', 0)
 min_bid_cents = _cfg.get('Bidding', {}).get('MIN_BID_CENTS', 100)
 _bid_log_channel_id = int(_cfg.get('Bidding', {}).get('BID_LOG_CHANNEL_ID', 0) or 0)
-_dm_outbid_alerts = bool(_cfg.get('Bidding', {}).get('DM_OUTBID_ALERTS', False))
+_dm_outbid_alerts = bool(_cfg.get('Bidding', {}).get('DM_OUTBID_ALERTS', True))
 
 class BidAmountModal(discord.ui.Modal, title='Place bid'):
     amount = discord.ui.TextInput(
@@ -59,6 +60,14 @@ class BidAmountModal(discord.ui.Modal, title='Place bid'):
 
         await bidding_db.insert_bid(cycle['id'], self.slot, interaction.user.id, amount_cents)
 
+        closes_utc = parse_utc_iso(cycle['closes_at_utc'])
+        ty, tm = cycle['target_year'], cycle['target_month']
+        closes_chi = compute_closes_at(ty, tm)
+        local_line = discord.utils.format_dt(closes_utc, style='F')
+        chi_line = closes_chi.strftime('%Y-%m-%d %H:%M %Z')
+
+        await interaction.response.send_message(f'Bid recorded: **Slot {self.slot}** — **${amount_cents / 100:.2f}**\nAuction ends: {local_line} (your Discord time)\nChicago reference: **{chi_line}**', ephemeral=True)
+
         if _dm_outbid_alerts and prev_user_id and prev_user_id != interaction.user.id:
             outbid_user = interaction.guild and interaction.guild.get_member(prev_user_id)
             if outbid_user is None:
@@ -67,9 +76,8 @@ class BidAmountModal(discord.ui.Modal, title='Place bid'):
                 except discord.HTTPException:
                     outbid_user = None
             if outbid_user is not None:
-                closes_utc = parse_utc_iso(cycle['closes_at_utc'])
                 try:
-                    await outbid_user.send(f'You were outbid on **Slot {self.slot}**.\nNew high bid: **${amount_cents / 100:.2f}**\nAuction ends: {discord.utils.format_dt(closes_utc, style="F")}')
+                    await outbid_user.send(f'You were outbid on **Slot {self.slot}**.\nNew high bid: **${amount_cents / 100:.2f}**\nAuction ends: {discord.utils.format_dt(closes_utc, style="F")}{SMPFINDER_PROMO}')
                 except (discord.Forbidden, discord.HTTPException):
                     pass
 
@@ -79,14 +87,6 @@ class BidAmountModal(discord.ui.Modal, title='Place bid'):
                 month_str = f"{cycle['target_year']}-{cycle['target_month']:02d}"
                 prev_str = f' (prev high: ${prev_amount / 100:.2f})' if prev_amount is not None else ''
                 await log_ch.send(f'**Slot {self.slot}** — {interaction.user.mention} bid **${amount_cents / 100:.2f}**{prev_str} | {month_str}')
-
-        closes_utc = parse_utc_iso(cycle['closes_at_utc'])
-        ty, tm = cycle['target_year'], cycle['target_month']
-        closes_chi = compute_closes_at(ty, tm)
-        local_line = discord.utils.format_dt(closes_utc, style='F')
-        chi_line = closes_chi.strftime('%Y-%m-%d %H:%M %Z')
-
-        await interaction.response.send_message(f'Bid recorded: **Slot {self.slot}** — **${amount_cents / 100:.2f}**\nAuction ends: {local_line} (your Discord time)\nChicago reference: **{chi_line}**', ephemeral=True)
 
         cog = interaction.client.get_cog('BiddingSchedulerCog')
         if cog:

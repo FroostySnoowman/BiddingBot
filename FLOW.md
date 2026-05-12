@@ -47,6 +47,8 @@ The bot checks this schedule about **every 2 minutes**. If the current time fall
   - If you set a **bidder role**, only members with that role can bid.
   - Amount must be at least **MIN_BID_CENTS** (shown as dollars in messages).
   - Each new bid on a slot must be **higher** than the current high for that slot.
+  - Unless you turn it off in config (`DM_OUTBID_ALERTS: false`), the **previous high bidder gets a DM** when they are outbid.
+  - While bidding is **open**, if a member **leaves the server** (or is kicked), **all of their bids for that cycle are removed** so each slot rolls back to the next-highest bidder (or no bids).
 
 **Who wins a slot?** The **highest** bid. If two bids tie on amount, the **earlier** bid wins.
 

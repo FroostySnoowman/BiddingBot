@@ -76,7 +76,6 @@ async def max_bid_for_slot(cycle_id: int, slot: int) -> int | None:
     return None
 
 async def current_high_bid_for_slot(cycle_id: int, slot: int) -> tuple[int, int] | None:
-    """Return (amount_cents, user_id) for the current high bid on a slot."""
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT amount_cents, user_id FROM bids WHERE cycle_id = ? AND slot = ? ORDER BY amount_cents DESC, created_at ASC, id ASC LIMIT 1", (cycle_id, slot))
         row = await cur.fetchone()
@@ -88,6 +87,12 @@ async def insert_bid(cycle_id: int, slot: int, user_id: int, amount_cents: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("INSERT INTO bids (cycle_id, slot, user_id, amount_cents) VALUES (?, ?, ?, ?)", (cycle_id, slot, user_id, amount_cents))
         await db.commit()
+
+async def delete_bids_for_user_in_cycle(cycle_id: int, user_id: int) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("DELETE FROM bids WHERE cycle_id = ? AND user_id = ?", (cycle_id, user_id))
+        await db.commit()
+        return cur.rowcount if cur.rowcount is not None else 0
 
 def cycle_is_bidding_open(cycle: dict) -> bool:
     if cycle.get('phase') != 'open':

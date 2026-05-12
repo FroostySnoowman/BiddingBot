@@ -6,6 +6,7 @@ from cogs.buttons.bidding.bid_view import BidPanelView, build_live_embed
 from cogs.functions import bidding_db
 from cogs.functions.bidding_time import CHICAGO, chicago_to_utc_iso, compute_closes_at, compute_opens_at, find_target_month_in_open_window, parse_utc_iso
 from cogs.functions import stripe_invoices
+from cogs.functions.dm_footer import SMPFINDER_PROMO
 
 with open('config.yml', 'r') as file:
     _cfg = yaml.safe_load(file)
@@ -43,6 +44,17 @@ class BiddingSchedulerCog(commands.Cog):
             await msg.edit(embed=em, view=BidPanelView())
         except discord.HTTPException:
             pass
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        if member.guild.id != guild_id:
+            return
+        cycle = await bidding_db.get_open_cycle(guild_id)
+        if not cycle or not bidding_db.cycle_is_bidding_open(cycle):
+            return
+        removed = await bidding_db.delete_bids_for_user_in_cycle(cycle['id'], member.id)
+        if removed > 0:
+            await self.refresh_live_embed_for_cycle(cycle['id'])
 
     @tasks.loop(minutes=2)
     async def bidding_tick(self):
@@ -170,7 +182,7 @@ class BiddingSchedulerCog(commands.Cog):
                     user = None
             if user:
                 try:
-                    await user.send(f'You won **slot {slot}** for **${cents / 100:.2f}**. Pay your invoice here: {url}')
+                    await user.send(f'You won **slot {slot}** for **${cents / 100:.2f}**. Pay your invoice here: {url}{SMPFINDER_PROMO}')
                 except discord.HTTPException:
                     if fb and isinstance(fb, discord.TextChannel):
                         await fb.send(f'Could not DM <@{uid}> for slot **{slot}** invoice. Link: {url}')

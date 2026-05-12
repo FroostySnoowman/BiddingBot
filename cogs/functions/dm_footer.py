@@ -1,0 +1,1 @@
+SMPFINDER_PROMO = "\n\nIf you haven't already, list your server on our website for free! https://www.smpfinder.com/"

@@ -94,6 +94,7 @@ All runtime options are read from **`config.yml`** in the working directory (sam
 | `MIN_BID_CENTS` | Minimum bid in **cents** (e.g. `100` = $1.00). |
 | `OPENS_HOUR_CHICAGO` | Hour **0–23** on the calendar day when the auction **opens** (Chicago time). Opening moment = that hour on **(first day of target month − 14 days)**. |
 | `STAFF_FALLBACK_CHANNEL_ID` | Staff-visible channel for Stripe errors, failed DMs, or “Stripe not configured” notices. Can be `0` to skip (not recommended in production). |
+| `DM_OUTBID_ALERTS` | When `true` (default if the key is omitted), the bot **DMs the previous high bidder** when someone outbids them on a slot. Set `false` to disable. |
 
 ### `Stripe`
 
@@ -159,6 +160,8 @@ Example: for **April** slots, bidding opens on **March 18** at the configured ho
    - Bid must be **≥ `MIN_BID_CENTS`**.
    - New bid on a slot must be **strictly higher** than the current high.
    - **Tie-break:** same high amount → earlier bid wins (see SQL window in `bidding_db.slot_high_bids`).
+   - Unless **`DM_OUTBID_ALERTS`** is `false`, the previous high bidder receives a **DM** when outbid.
+   - While the window is still open, if a member **leaves the server** (or is kicked), **their bids for that cycle are removed** and highs roll back to the next bidder.
 
 ### Scheduler
 

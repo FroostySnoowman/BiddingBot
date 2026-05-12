@@ -5,6 +5,7 @@ import io
 import yaml
 import zipfile
 from cogs.functions import bidding_db
+from cogs.functions.dm_footer import SMPFINDER_PROMO
 
 with open('config.yml', 'r') as file:
     _cfg = yaml.safe_load(file)
@@ -411,7 +412,10 @@ class PartnershipReviewView(discord.ui.View):
         dm_ok = False
         if target is not None:
             try:
-                await target.send(f'Your partnership application has been approved! You can view the approved post here: {jump_url}')
+                await target.send(
+                    f'Your partnership application has been approved! You can view the approved post here: {jump_url}'
+                    f'{SMPFINDER_PROMO}'
+                )
                 dm_ok = True
             except discord.Forbidden:
                 pass
@@ -465,7 +469,7 @@ class PartnershipReviewView(discord.ui.View):
 
         if target is not None:
             try:
-                await target.send(f'Your partnership application was denied.\nReason: {reason}')
+                await target.send(f'Your partnership application was denied.\nReason: {reason}{SMPFINDER_PROMO}')
             except discord.Forbidden:
                 pass
 
