@@ -25,7 +25,6 @@ for _tid in _tickets.get('PARTNERSHIP_FORUM_TAG_IDS', []) or []:
     except (TypeError, ValueError):
         pass
 
-# Field names must match _run_partnership_qa final embed
 _FIELD_SERVER_NAME = '🏰 Server Name'
 _FIELD_ADVERTISEMENT = '💬 Advertisement'
 _FIELD_DISCORD_INVITE = '🔗 Discord Invite'
@@ -49,6 +48,19 @@ PARTNERSHIP_QA_STEPS: list[tuple[str, str, bool]] = [
     ('logo', 'Can you provide the logo to your server?', True),
     ('visibility', 'Is your server public or private?', False),
     ('listed', 'Is your server listed on our free website https://www.smpfinder.com', False),
+]
+
+APPLY_QA_STEPS: list[tuple[str, str, bool]] = [
+    ('age_region_timezone', "What's your current age, region, and timezone?", False),
+    ('good_fit', 'Why would you be a good fit for the staff team?', False),
+    ('skills', 'What skills do you bring to the staff team?', False),
+    ('why_staff', 'Why do you want to be a staff member?', False),
+    ('staff_positions', 'Please share your current and previous staffing positions', False),
+    ('friend_rule_break', 'If you saw a friend breaking a rule, how would you handle this?', False),
+    ('owners_arguing', 'If you saw two server owners arguing in general, how would you handle this?', False),
+    ('staff_rule_break', 'What would you do if a fellow staff member were breaking staff rules or server rules?', False),
+    ('activity', 'We require staff to be active. Can you do that?', False),
+    ('anything_else', "Is there anything else you'd like to add?", False),
 ]
 
 def _staff_or_manage(member: discord.Member) -> bool:
@@ -547,6 +559,86 @@ async def _run_partnership_qa(bot: discord.Client, channel: discord.TextChannel,
 
     await channel.send(embed=em, view=PartnershipReviewView(), files=review_files[:10])
 
+async def _run_apply_qa(bot: discord.Client, channel: discord.TextChannel, opener: discord.abc.User):
+    answers: dict[str, str] = {}
+    for key, prompt, want_files in APPLY_QA_STEPS:
+        step = await _ask_partner_step(bot, channel, opener, prompt, want_files)
+        if step is None:
+            return
+        answers[key] = step['text']
+
+    mem = channel.guild.get_member(opener.id) if channel.guild else None
+    applicant_val = mem.mention if mem else f'<@{opener.id}>'
+
+    em = discord.Embed(title='Complete Staff Application', color=discord.Color.from_str(embed_color))
+    em.add_field(name='👤 Applicant', value=applicant_val, inline=False)
+    em.add_field(name='🎂 Age, region & timezone', value=_truncate(answers['age_region_timezone']), inline=False)
+    em.add_field(name='✅ Good fit', value=_truncate(answers['good_fit']), inline=False)
+    em.add_field(name='🛠️ Skills', value=_truncate(answers['skills']), inline=False)
+    em.add_field(name='💼 Why staff', value=_truncate(answers['why_staff']), inline=False)
+    em.add_field(name='📋 Staffing positions', value=_truncate(answers['staff_positions']), inline=False)
+    em.add_field(name='👥 Friend breaking rules', value=_truncate(answers['friend_rule_break']), inline=False)
+    em.add_field(name='⚔️ Owners arguing', value=_truncate(answers['owners_arguing']), inline=False)
+    em.add_field(name='🛡️ Fellow staff breaking rules', value=_truncate(answers['staff_rule_break']), inline=False)
+    em.add_field(name='📅 Activity', value=_truncate(answers['activity']), inline=False)
+    em.add_field(name='📝 Anything else', value=_truncate(answers['anything_else']), inline=False)
+
+    await channel.send(embed=em)
+
+async def _open_apply_ticket(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    guild = interaction.guild
+    if guild is None or guild.id != guild_id:
+        await interaction.followup.send('Wrong server.', ephemeral=True)
+        return
+
+    num = await bidding_db.next_ticket_number()
+    name = f'apply-{num}'
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True,
+        ),
+    }
+    for rid in _staff_role_ids:
+        role = guild.get_role(rid)
+        if role:
+            overwrites[role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            )
+
+    parent = guild.get_channel(_category_id)
+    if not isinstance(parent, discord.CategoryChannel):
+        await interaction.followup.send('Ticket category not configured.', ephemeral=True)
+        return
+
+    topic = f'opener_id:{interaction.user.id}|type:apply'
+    ch = await guild.create_text_channel(name=name, category=parent, overwrites=overwrites, topic=topic)
+    pings = ' '.join(f'<@&{rid}>' for rid in _staff_role_ids)
+    header = f'{interaction.user.mention} {pings}'.strip()
+
+    info = discord.Embed(
+        title=_categories.get('apply', 'Apply'),
+        description='Staff application — answer the bot questions below.',
+        color=discord.Color.from_str(embed_color),
+    )
+    info.add_field(name='👤 Applicant', value=interaction.user.mention, inline=False)
+    info.set_footer(text='Staff can close with the lock button.')
+
+    v = TicketCloseView()
+    await ch.send(content=header, embed=info, view=v)
+    await interaction.followup.send(f'Ticket created: {ch.mention}', ephemeral=True)
+
+    asyncio.create_task(_run_apply_qa(interaction.client, ch, interaction.user))
+
 async def _open_partnership_ticket(interaction: discord.Interaction, modal_values: dict[str, str]):
     await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
@@ -600,31 +692,6 @@ async def _open_partnership_ticket(interaction: discord.Interaction, modal_value
     await interaction.followup.send(f'Ticket created: {ch.mention}', ephemeral=True)
 
     asyncio.create_task(_run_partnership_qa(interaction.client, ch, interaction.user, dict(modal_values)))
-
-class ApplyModal(discord.ui.Modal, title='Apply'):
-    q1 = discord.ui.TextInput(
-        label='Why do you want to join?',
-        style=discord.TextStyle.long,
-        required=True,
-        max_length=2000,
-    )
-    q2 = discord.ui.TextInput(
-        label='Relevant experience / links',
-        style=discord.TextStyle.long,
-        required=True,
-        max_length=2000,
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await _open_ticket(
-            interaction,
-            'apply',
-            _categories.get('apply', 'Apply'),
-            [
-                f'**Why apply:** {self.q1.value}',
-                f'**Experience:** {self.q2.value}',
-            ],
-        )
 
 class SupportModal(discord.ui.Modal, title='Support'):
     q1 = discord.ui.TextInput(
@@ -745,7 +812,7 @@ class TicketPanelView(discord.ui.View):
 
     @discord.ui.button(label='Apply', style=discord.ButtonStyle.blurple, custom_id='ticket_panel_apply')
     async def btn_apply(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(ApplyModal())
+        await _open_apply_ticket(interaction)
 
     @discord.ui.button(label='Support', style=discord.ButtonStyle.blurple, custom_id='ticket_panel_support')
     async def btn_support(self, interaction: discord.Interaction, button: discord.ui.Button):
