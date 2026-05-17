@@ -65,7 +65,18 @@ Tickets:
     PANEL_CHANNEL_ID: 0
 
     # Category under which new ticket text channels are created (copy category ID)
+    # Used as the fallback when CATEGORY_IDS does not set a category for a ticket type.
     TICKET_CATEGORY_ID: 0
+
+    # Optional per-ticket categories. Leave missing or 0 to use TICKET_CATEGORY_ID.
+    # Keys: apply, support, bugs, general, partner, accepted
+    CATEGORY_IDS:
+        apply: 0
+        support: 0
+        bugs: 0
+        general: 0
+        partner: 0
+        accepted: 0
 
     # Roles that can see tickets, get pinged on open, and use the Close button
     STAFF_ROLE_IDS: []
@@ -84,7 +95,7 @@ Tickets:
 
     # Labels for ticket panel buttons (keys must stay apply/support/bugs/general/partner)
     CATEGORIES:
-        apply: "Apply"
+        apply: "Staff Apply"
         support: "Support"
         bugs: "Bugs"
         general: "General"

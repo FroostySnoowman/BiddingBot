@@ -14,6 +14,12 @@ guild_id = _cfg['General']['GUILD_ID']
 embed_color = _cfg['General']['EMBED_COLOR']
 _tickets = _cfg.get('Tickets', {}) or {}
 _category_id = int(_tickets.get('TICKET_CATEGORY_ID', 0) or 0)
+_category_ids: dict[str, int] = {}
+for _key, _value in (_tickets.get('CATEGORY_IDS', {}) or {}).items():
+    try:
+        _category_ids[str(_key)] = int(_value or 0)
+    except (TypeError, ValueError):
+        pass
 _staff_role_ids = list(_tickets.get('STAFF_ROLE_IDS', []) or [])
 _categories = _tickets.get('CATEGORIES', {}) or {}
 _transcript_channel_id = int(_tickets.get('TRANSCRIPT_CHANNEL_ID', 0) or 0)
@@ -80,6 +86,44 @@ def _message_has_illegal_ping(message: discord.Message) -> bool:
     if '@everyone' in content or '@here' in content:
         return True
     return False
+
+def _ticket_overwrites(guild: discord.Guild, opener: discord.abc.User) -> dict:
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        opener: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True,
+        ),
+    }
+    for rid in _staff_role_ids:
+        role = guild.get_role(rid)
+        if role:
+            overwrites[role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            )
+    return overwrites
+
+def _ticket_category(guild: discord.Guild, key: str) -> discord.CategoryChannel | None:
+    category_id = _category_ids.get(key) or _category_id
+    parent = guild.get_channel(category_id) if category_id else None
+    return parent if isinstance(parent, discord.CategoryChannel) else None
+
+def _opener_id_from_channel(ch: discord.TextChannel) -> int | None:
+    if not ch.topic:
+        return None
+    for part in ch.topic.split('|'):
+        if part.startswith('opener_id:'):
+            try:
+                return int(part.split(':', 1)[1])
+            except ValueError:
+                return None
+    return None
 
 async def _close_and_transcript(bot: discord.Client, ch: discord.TextChannel, closer: discord.Member):
     guild = ch.guild
@@ -231,33 +275,13 @@ async def _open_ticket(interaction: discord.Interaction, key: str, title: str, b
     slug = key[:12].replace(' ', '-')
     name = f'{slug}-{num}'
 
-    overwrites = {
-        guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        interaction.user: discord.PermissionOverwrite(
-            view_channel=True,
-            send_messages=True,
-            read_message_history=True,
-            attach_files=True,
-            embed_links=True,
-        ),
-    }
-    for rid in _staff_role_ids:
-        role = guild.get_role(rid)
-        if role:
-            overwrites[role] = discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                manage_messages=True,
-            )
-
-    parent = guild.get_channel(_category_id)
-    if not isinstance(parent, discord.CategoryChannel):
+    parent = _ticket_category(guild, key)
+    if parent is None:
         await interaction.followup.send('Ticket category not configured.', ephemeral=True)
         return
 
     topic = f'opener_id:{interaction.user.id}|type:{key}'
-    ch = await guild.create_text_channel(name=name, category=parent, overwrites=overwrites, topic=topic)
+    ch = await guild.create_text_channel(name=name, category=parent, overwrites=_ticket_overwrites(guild, interaction.user), topic=topic)
     pings = ' '.join(f'<@&{rid}>' for rid in _staff_role_ids)
     header = f'{interaction.user.mention} {pings}'.strip()
 
@@ -350,6 +374,77 @@ def _copy_embed_from_src(src: discord.Embed) -> discord.Embed:
     if src.thumbnail and src.thumbnail.url:
         out.set_thumbnail(url=src.thumbnail.url)
     return out
+
+class ApplyReviewView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label='Accept', style=discord.ButtonStyle.success, custom_id='apply_review_accept')
+    async def accept_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not isinstance(interaction.user, discord.Member) or not _staff_or_manage(interaction.user):
+            await interaction.response.send_message('Only staff can use this.', ephemeral=True)
+            return
+        ch = interaction.channel
+        if not isinstance(ch, discord.TextChannel):
+            await interaction.response.send_message('Invalid channel.', ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        opener_id = _opener_id_from_channel(ch)
+        applicant = ch.guild.get_member(opener_id) if opener_id else None
+        if applicant is None:
+            await interaction.followup.send('Could not find the applicant in this server.', ephemeral=True)
+            return
+
+        parent = _ticket_category(ch.guild, 'accepted') if 'accepted' in _category_ids else _ticket_category(ch.guild, 'apply')
+        if parent is None:
+            await interaction.followup.send('Accepted ticket category not configured.', ephemeral=True)
+            return
+
+        accepted_ch = await ch.guild.create_text_channel(name='accepted', category=parent, overwrites=_ticket_overwrites(ch.guild, applicant), topic=f'opener_id:{applicant.id}|type:accepted')
+        pings = ' '.join(f'<@&{rid}>' for rid in _staff_role_ids)
+        header = f'{applicant.mention} {pings}'.strip()
+        em = discord.Embed(title='Staff Application Accepted', description='This applicant has been accepted. Staff can coordinate next steps here.', color=discord.Color.from_str(embed_color))
+        em.add_field(name='Applicant', value=applicant.mention, inline=False)
+        await accepted_ch.send(content=header, embed=em, view=TicketCloseView())
+
+        await _close_and_transcript(interaction.client, ch, interaction.user)
+        await interaction.followup.send(f'Accepted ticket opened: {accepted_ch.mention}', ephemeral=True)
+
+    @discord.ui.button(label='Deny', style=discord.ButtonStyle.danger, custom_id='apply_review_deny')
+    async def deny_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not isinstance(interaction.user, discord.Member) or not _staff_or_manage(interaction.user):
+            await interaction.response.send_message('Only staff can use this.', ephemeral=True)
+            return
+        ch = interaction.channel
+        if not isinstance(ch, discord.TextChannel):
+            await interaction.response.send_message('Invalid channel.', ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        opener_id = _opener_id_from_channel(ch)
+        target = ch.guild.get_member(opener_id) if (opener_id and ch.guild) else None
+        if target is None and opener_id:
+            try:
+                target = await interaction.client.fetch_user(opener_id)
+            except discord.NotFound:
+                target = None
+
+        dm_ok = False
+        if target is not None:
+            try:
+                await target.send("You've been denied, feel free to apply again in 2 weeks")
+                dm_ok = True
+            except discord.Forbidden:
+                pass
+
+        await _close_and_transcript(interaction.client, ch, interaction.user)
+        if dm_ok:
+            await interaction.followup.send('Application denied, user DMed, and ticket closed.', ephemeral=True)
+        else:
+            await interaction.followup.send('Application denied and ticket closed, but the user could not be DMed.', ephemeral=True)
 
 class PartnershipReviewView(discord.ui.View):
     def __init__(self):
@@ -583,7 +678,7 @@ async def _run_apply_qa(bot: discord.Client, channel: discord.TextChannel, opene
     em.add_field(name='📅 Activity', value=_truncate(answers['activity']), inline=False)
     em.add_field(name='📝 Anything else', value=_truncate(answers['anything_else']), inline=False)
 
-    await channel.send(embed=em)
+    await channel.send(embed=em, view=ApplyReviewView())
 
 async def _open_apply_ticket(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
@@ -595,39 +690,19 @@ async def _open_apply_ticket(interaction: discord.Interaction):
     num = await bidding_db.next_ticket_number()
     name = f'apply-{num}'
 
-    overwrites = {
-        guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        interaction.user: discord.PermissionOverwrite(
-            view_channel=True,
-            send_messages=True,
-            read_message_history=True,
-            attach_files=True,
-            embed_links=True,
-        ),
-    }
-    for rid in _staff_role_ids:
-        role = guild.get_role(rid)
-        if role:
-            overwrites[role] = discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                manage_messages=True,
-            )
-
-    parent = guild.get_channel(_category_id)
-    if not isinstance(parent, discord.CategoryChannel):
+    parent = _ticket_category(guild, 'apply')
+    if parent is None:
         await interaction.followup.send('Ticket category not configured.', ephemeral=True)
         return
 
     topic = f'opener_id:{interaction.user.id}|type:apply'
-    ch = await guild.create_text_channel(name=name, category=parent, overwrites=overwrites, topic=topic)
+    ch = await guild.create_text_channel(name=name, category=parent, overwrites=_ticket_overwrites(guild, interaction.user), topic=topic)
     pings = ' '.join(f'<@&{rid}>' for rid in _staff_role_ids)
     header = f'{interaction.user.mention} {pings}'.strip()
 
     info = discord.Embed(
-        title=_categories.get('apply', 'Apply'),
-        description='Staff application — answer the bot questions below.',
+        title=_categories.get('apply', 'Staff Apply'),
+        description='Staff application only. This is not for SMP Owner role requests. Answer the bot questions below.',
         color=discord.Color.from_str(embed_color),
     )
     info.add_field(name='👤 Applicant', value=interaction.user.mention, inline=False)
@@ -649,33 +724,13 @@ async def _open_partnership_ticket(interaction: discord.Interaction, modal_value
     num = await bidding_db.next_ticket_number()
     name = f'partnership-{num}'
 
-    overwrites = {
-        guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        interaction.user: discord.PermissionOverwrite(
-            view_channel=True,
-            send_messages=True,
-            read_message_history=True,
-            attach_files=True,
-            embed_links=True,
-        ),
-    }
-    for rid in _staff_role_ids:
-        role = guild.get_role(rid)
-        if role:
-            overwrites[role] = discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                manage_messages=True,
-            )
-
-    parent = guild.get_channel(_category_id)
-    if not isinstance(parent, discord.CategoryChannel):
+    parent = _ticket_category(guild, 'partner')
+    if parent is None:
         await interaction.followup.send('Ticket category not configured.', ephemeral=True)
         return
 
     topic = f'opener_id:{interaction.user.id}|type:partner'
-    ch = await guild.create_text_channel(name=name, category=parent, overwrites=overwrites, topic=topic)
+    ch = await guild.create_text_channel(name=name, category=parent, overwrites=_ticket_overwrites(guild, interaction.user), topic=topic)
     pings = ' '.join(f'<@&{rid}>' for rid in _staff_role_ids)
     header = f'{interaction.user.mention} {pings}'.strip()
 
@@ -805,12 +860,19 @@ class PartnerModal(discord.ui.Modal, title='Partner'):
 class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+        labels = {
+            'ticket_panel_apply': _categories.get('apply', 'Staff Apply'),
+            'ticket_panel_support': _categories.get('support', 'Support'),
+            'ticket_panel_bugs': _categories.get('bugs', 'Bugs'),
+            'ticket_panel_general': _categories.get('general', 'General'),
+            'ticket_panel_partner': _categories.get('partner', 'Partner'),
+        }
         for item in self.children:
-            if getattr(item, 'custom_id', None) == 'ticket_panel_partner':
-                item.label = str(_categories.get('partner', 'Partner'))
-                break
+            custom_id = getattr(item, 'custom_id', None)
+            if custom_id in labels:
+                item.label = str(labels[custom_id])
 
-    @discord.ui.button(label='Apply', style=discord.ButtonStyle.blurple, custom_id='ticket_panel_apply')
+    @discord.ui.button(label='Staff Apply', style=discord.ButtonStyle.blurple, custom_id='ticket_panel_apply')
     async def btn_apply(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _open_apply_ticket(interaction)
 

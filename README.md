@@ -116,9 +116,10 @@ There is **no webhook**. Paid status is detected by **polling** `stripe.Invoice.
 | Key | Purpose |
 |-----|--------|
 | `PANEL_CHANNEL_ID` | **Documentation only** for you—where to run `/ticketpanel`. The bot does not read this key; it’s a reminder. |
-| `TICKET_CATEGORY_ID` | **Category** under which new **ticket text channels** are created. |
+| `TICKET_CATEGORY_ID` | Default **category** under which new **ticket text channels** are created. |
+| `CATEGORY_IDS` | Optional per-ticket category IDs for `apply`, `support`, `bugs`, `general`, `partner`, and `accepted`. Missing or `0` entries fall back to `TICKET_CATEGORY_ID`. |
 | `STAFF_ROLE_IDS` | List of role IDs that can see tickets, get pings on open, and use the **Close** button. |
-| `CATEGORIES` | Display names for the four ticket types (`apply`, `support`, `bugs`, `general`). |
+| `CATEGORIES` | Display names for ticket panel buttons (`apply`, `support`, `bugs`, `general`, `partner`). |
 
 ### `AutoMod`
 
@@ -196,9 +197,10 @@ Example: for **April** slots, bidding opens on **March 18** at the configured ho
 ## Tickets
 
 1. A user with **Manage Server** runs **`/ticketpanel`** in the channel where you want the panel (often the channel ID you noted in `PANEL_CHANNEL_ID`).
-2. Users click **Apply**, **Support**, **Bugs**, or **General**, fill the **modal**, and the bot creates a **private text channel** under **`TICKET_CATEGORY_ID`** named like `apply-42`.
+2. Users click **Staff Apply**, **Support**, **Bugs**, **General**, or **Partner**, and the bot creates a **private text channel** under the matching **`CATEGORY_IDS`** entry or the fallback **`TICKET_CATEGORY_ID`**.
 3. **Permissions:** `@everyone` cannot view the channel; the opener and **`STAFF_ROLE_IDS`** can. The first message pings the opener and staff roles.
-4. Staff use the **Close** button to **delete** the channel (only users with **Manage Guild**, **Administrator**, or a configured staff role).
+4. **Staff Apply** is only for staff applications, not SMP Owner role requests. It asks the configured questions in-channel, then posts an application review embed with **Accept** and **Deny** buttons.
+5. Staff use the **Close** button to **delete** the channel (only users with **Manage Guild**, **Administrator**, or a configured staff role).
 
 ---
 
